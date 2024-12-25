@@ -17,6 +17,8 @@ def save_facebook_video(face_url):
     response = requests.post(url, data={"id": face_url,"locale": "es"}, headers=headers)
     soup = bs4.BeautifulSoup(response.text, 'html.parser')
     elem = soup.find("a", {"class": "hd-button"})
+    if not elem:
+        elem = soup.find("a", {"class": "ig-button"})
     url = elem.attrs.get("href")
     if url is None:
         raise ValueError("url not found")
