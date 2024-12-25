@@ -16,15 +16,13 @@ def save_facebook_video(face_url):
     
     url = "https://getmyfb.com/process"
     response = requests.post(url, data={"id": face_url,"locale": "es"}, headers=headers)
-    root = html.fromstring(response.content)
-    tree = root.getroottree()
-    video_element = tree.xpath("/html/body/section/div[2]/div/div[2]/a")
-    url = video_element[0]
+    soup = bs4.BeautifulSoup(response.text, 'html.parser')
+    elem = soup.find("a", {"class": "hd-button"})
+    url = elem.attrs.get("href")
     if url is None:
         raise ValueError("url not found")
-    real_url = url.get("href")
-    video_response = requests.get(real_url, headers=headers)
-    name = hashlib.md5(real_url.encode('utf-8')).hexdigest()
+    video_response = requests.get(url, headers=headers)
+    name = hashlib.md5(url.encode('utf-8')).hexdigest()
     with open("{}.mp4".format(name), "wb") as f:
         f.write(video_response.content)
 
