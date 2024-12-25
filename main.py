@@ -1,7 +1,7 @@
 import discord
 from dotenv import load_dotenv
 import os
-from utils import save_facebook_video, save_video_tiktok
+from utils import save_facebook_video, save_video_instagram, save_video_tiktok
 import random
 
 load_dotenv()
@@ -54,7 +54,14 @@ class Client(discord.Client):
             except Exception as e:
                 print(e)
                 await message.channel.send("Mrc que eso que te pasa!")
-
+        if message.content.startswith('!semeruca'):
+            try:
+                name = save_video_instagram(message.content.split(' ')[1])
+                await message.channel.send("Aqui está tu video camarada", file=discord.File(name))
+                os.remove(name)
+            except Exception as e:
+                print(e)
+                await message.channel.send("Mrc que eso que te pasa!")
             # await message.channel.send('quetepasa!')
 
 
