@@ -1,127 +1,142 @@
+import os
 import requests
 import bs4
-from lxml.etree import parse
-from lxml import html
-import js2py
 import re
 import hashlib
+from urllib.parse import urlparse, urlunparse
 
-
-
-def save_facebook_video(face_url):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0.1; Moto G (4)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.106 Mobile Safari/537.36'
-    }
-    
-    url = "https://getmyfb.com/process"
-    response = requests.post(url, data={"id": face_url,"locale": "es"}, headers=headers)
-    soup = bs4.BeautifulSoup(response.text, 'html.parser')
-    elem = soup.find("a", {"class": "hd-button"})
-    if not elem:
-        elem = soup.find("a", {"class": "ig-button"})
-    url = elem.attrs.get("href")
-    if url is None:
-        raise ValueError("url not found")
-    video_response = requests.get(url, headers=headers)
-    name = hashlib.md5(url.encode('utf-8')).hexdigest()
-    with open("{}.mp4".format(name), "wb") as f:
-        f.write(video_response.content)
-
-    return "{}.mp4".format(name)
-
-
-def save_video_tiktok(video_url):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0.1; Moto G (4)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.106 Mobile Safari/537.36'
-    }
-    main_url = "https://tiktokio.com/#google_vignette"
-    response = requests.get(main_url, headers=headers)
-    soup = bs4.BeautifulSoup(response.text, 'html.parser')
-    prefix = soup.find('input', {"name": "prefix"}).get("value")
-    url = "https://tiktokio.com/api/v1/tk-htmx"
-    response = requests.post(url, data={"prefix": prefix,"vid": video_url}, headers=headers)
-    root = html.fromstring(response.content)
-    tree = root.getroottree()
-    real_url = tree.xpath("/html/div/div[1]/div/a")[0].get("href")
-    video_response = requests.get(real_url, headers=headers)
-    name = hashlib.md5(real_url.encode('utf-8')).hexdigest()
-    with open("{}.mp4".format(name), "wb") as f:
-        f.write(video_response.content)
-
-    return "{}.mp4".format(name)
-
-
-
-def save_video_instagram(video_url):
-    val ='''
-    var _0xc0e = [
-    "",
-    "split",
-    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/",
-    "slice",
-    "indexOf",
-    "",
-    "",
-    ".",
-    "pow",
-    "reduce",
-    "reverse",
-    "0",
-    ];
-    function _0xe0c(d, e, f) {
-    var g = _0xc0e[2][_0xc0e[1]](_0xc0e[0]);
-    var h = g[_0xc0e[3]](0, e);
-    var i = g[_0xc0e[3]](0, f);
-    var j = d[_0xc0e[1]](_0xc0e[0])
-        [_0xc0e[10]]()
-        [_0xc0e[9]](function (a, b, c) {
-        if (h[_0xc0e[4]](b) !== -1)
-            return (a += h[_0xc0e[4]](b) * Math[_0xc0e[8]](e, c));
-        }, 0);
-    var k = _0xc0e[0];
-    while (j > 0) {
-        k = i[j % f] + k;
-        j = (j - (j % f)) / f;
-    }
-    return k || _0xc0e[11];
-    }
-    function unitary (h, u, n, t, e, r) {
-        r = "";
-        for (var i = 0, len = h.length; i < len; i++) {
-        var s = "";
-        while (h[i] !== n[e]) {
-            s += h[i];
-            i++;
-        }
-        for (var j = 0; j < n.length; j++)
-            s = s.replace(new RegExp(n[j], "g"), j);
-        r += String.fromCharCode(_0xe0c(s, e, 10) - t);
-        }
-        return decodeURIComponent(r);
-    }
-    unitary('''
-    headers = {
+class AbstractDownloader:
+    base_url = ""
+    def __init__(self, url):
+        self.url = url
+        self.headers = {
             'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0.1; Moto G (4)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.106 Mobile Safari/537.36'
         }
-    payload = {
-        "q": video_url,
-        "t": "media",
-        "lang": "es",
-        "v": "v2",
-    }
-    response = requests.post("https://v3.savevid.net/api/ajaxSearch", headers=headers, data=payload)
-    data = response.json()
-    js_code = data["data"].replace("\\", "")
-    lista = re.findall(r'\((.*?)\)', js_code)
-    js_args = lista[-1]
 
-    val+=js_args+')'
-    result = js2py.eval_js(val)
-    soup = bs4.BeautifulSoup(result, 'html.parser')
-    elem = soup.find_all("a")
-    url = elem[1].get("href").replace("\\", "").replace('"', '')
-    response = requests.get(url, headers=headers)
-    name = hashlib.md5(video_url.encode('utf-8')).hexdigest()
-    with open("{}.mp4".format(name), "wb") as f:
-        f.write(response.content)
-    return "{}.mp4".format(name)
+    def get_name(self):
+        return hashlib.md5(self.url.encode('utf-8')).hexdigest()
+    
+    def download(self):
+        url = self.get_video_url()
+        name = self.get_name()
+        name = self._save_video(url, name)
+        return name
+        
+    def get_video_url(self):
+        raise NotImplementedError("Subclasses must implement this method")
+
+    def _save_video(self, url, name):
+        response = requests.get(url, headers=self.headers)
+        full_name = "{}.mp4".format(name)
+        with open(full_name, "wb") as f:
+            f.write(response.content)
+        return full_name
+
+
+FACEBOOK = "facebook.com"
+TIKTOK = "tiktok.com"
+
+
+class InvalidUrlParseError(Exception):
+    pass
+
+class ParserNotFoundError(Exception):
+    pass
+
+
+class FacebookDownloader(AbstractDownloader):
+    base_url = "https://getmyfb.com/process"
+    def get_video_url(self):
+        response = requests.post(self.base_url, data={"id": self.url,"locale": "es"}, headers=self.headers)
+        soup = bs4.BeautifulSoup(response.text, 'html.parser')
+        elem = soup.find("a", {"class": "hd-button"})
+        if not elem:
+            elem = soup.find("a", {"class": "ig-button"})
+        url = elem.attrs.get("href")
+        if url is None:
+            raise ValueError("url not found")
+        return url
+
+class TiktokDownloader(AbstractDownloader):
+    base_url = "https://api.twitterpicker.com/tiktok/mediav2"
+    def get_video_url(self):
+        parsed = urlparse(self.url)
+        clean_path = (parsed.path or "").rstrip("/")
+        id_from_url = clean_path.split("/")[-1] if clean_path else ""
+        if not id_from_url:
+            raise ValueError("No se pudo extraer el id desde la URL")
+        response = requests.get(self.base_url, params={"id": id_from_url}, headers=self.headers)
+        data = response.json()
+        url = data.get("video_no_watermark",{}).get("url")
+        if url is None:
+            raise ValueError("url not found")
+        return url
+
+class DownloaderFactory:
+    VALID_HOSTNAMES = [
+        (FacebookDownloader, ("facebook.com", "instagram.com", "fb.com", "fb.me", "fb.watch")),
+        (TiktokDownloader, ("tiktok.com", "tiktok.app", "tiktok.video"))
+    ]
+    def get_url_from_message(self, message):
+        # Acepta tanto discord.Message como str
+        text = getattr(message, "content", message)
+        if not isinstance(text, str):
+            raise TypeError("message must be str o tener .content")
+
+        text = text.strip()
+        if not text:
+            raise ValueError("Mensaje vacío")
+
+        # Quita prefijos de comando tipo: !face, !tk, !insta, etc.
+        # (si el usuario pega sólo la URL, esto no afecta)
+        parts = text.split()
+        if parts and parts[0].startswith("!"):
+            text = " ".join(parts[1:]).strip()
+
+        # Encuentra la primera URL aunque venga sin esquema (p.ej. instagram.com/...)
+        # Limpia puntuación final común en chats: ), ], ., , etc.
+        url_like_re = re.compile(
+            r"(?P<url>("
+            r"(?:https?://)?"
+            r"(?:www\.)?"
+            r"[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+"
+            r"(?:/[^\s<>\]\)]*)?"
+            r"))",
+            re.IGNORECASE,
+        )
+        m = url_like_re.search(text)
+        if not m:
+            raise InvalidUrlParseError("No se encontró una URL en el mensaje")
+
+        candidate = m.group("url").strip()
+        candidate = candidate.rstrip(").,;!?'\"»›]")
+
+        # Normaliza a URL válida con esquema
+        if not re.match(r"^https?://", candidate, flags=re.IGNORECASE):
+            candidate = "https://" + candidate
+
+        parsed = urlparse(candidate)
+        if not parsed.netloc:
+            raise ValueError("URL inválida")
+
+        # Asegura que no quede algo raro en path/query/fragment
+        normalized = urlunparse(
+            (
+                parsed.scheme.lower() if parsed.scheme else "https",
+                parsed.netloc,
+                parsed.path or "",
+                parsed.params or "",
+                parsed.query or "",
+                parsed.fragment or "",
+            )
+        )
+        return normalized
+
+    def get_downloader(self, message):
+        url = self.get_url_from_message(message.content)
+        host = (urlparse(url).hostname or "").lower()
+        for downloader, hostnames in self.VALID_HOSTNAMES:
+            if host.endswith(hostnames):
+                #print(f"Downloader: {downloader.__class__.__name__}, Host: {host}")
+                return downloader(url)
+        raise ParserNotFoundError("Invalid URL")
